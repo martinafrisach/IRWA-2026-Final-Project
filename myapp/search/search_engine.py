@@ -30,8 +30,7 @@ class SearchEngine:
                     brand=doc.brand,
                     out_of_stock=doc.out_of_stock,
                     images=doc.images,
-                    # Internal link for click tracking -> doc_details, while keeping original URL accessible if needed
-                    url=f"doc_details?pid={doc.pid}&search_id={search_id}&param2=2",
+                    url=doc.url,
                     ranking=round(score, 4),
                 )
             )

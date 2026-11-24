@@ -11,6 +11,8 @@ from myapp.search.objects import Document, StatsDocument
 from myapp.search.search_engine import SearchEngine
 from myapp.generation.rag import RAGGenerator
 from dotenv import load_dotenv
+from myapp.search.algorithms import build_search_index
+
 load_dotenv()  # take environment variables from .env
 
 
@@ -43,6 +45,10 @@ file_path = path + "/" + os.getenv("DATA_FILE_PATH")
 corpus = load_corpus(file_path)
 # Log first element of corpus to verify it loaded correctly:
 print("\nCorpus is loaded... \n First element:\n", list(corpus.values())[0])
+# build the search index ONCE at startup, so the first search is not slow
+print("Building search index...")
+search_engine.index_data = build_search_index(corpus)
+print("Search index ready.")
 
 
 # Home URL "/"
@@ -85,37 +91,39 @@ def search_form_post():
 
     print(session)
 
-    return render_template('results.html', results_list=results, page_title="Results", found_counter=found_count, rag_response=rag_response)
+    return render_template('results.html', results_list=results, page_title="Results", found_counter=found_count, rag_response=rag_response, search_id=search_id)
 
 
 @app.route('/doc_details', methods=['GET'])
 def doc_details():
     """
-    Show document details page
-    ### Replace with your custom logic ###
+    Show the full information of a product (document details page).
+    Only counts a click if the product exists in the corpus.
     """
-
-    # getting request parameters:
-    # user = request.args.get('user')
-    print("doc details session: ")
-    print(session)
-
-    res = session["some_var"]
-    print("recovered var from session:", res)
-
-    # get the query string parameters from request
-    clicked_doc_id = request.args["pid"]
+    # get the product id from the URL (?pid=...)
+    clicked_doc_id = request.args.get("pid")
     print("click in id={}".format(clicked_doc_id))
 
-    # store data in statistics table 1
-    if clicked_doc_id in analytics_data.fact_clicks.keys():
+    # get the search and the position the click came from (?search_id=...&rank=...)
+    search_id = request.args.get("search_id")
+    rank = request.args.get("rank")
+    print("click from search_id={} at rank={}".format(search_id, rank))
+
+    # look for the product in the corpus BEFORE counting the click
+    doc = corpus.get(clicked_doc_id)
+
+    # if the product does not exist, show the "not found" page without counting the click
+    if doc is None:
+        return render_template('doc_details.html', doc=None)
+
+    # store data in statistics table 1 (only valid products)
+    if clicked_doc_id in analytics_data.fact_clicks:
         analytics_data.fact_clicks[clicked_doc_id] += 1
     else:
         analytics_data.fact_clicks[clicked_doc_id] = 1
 
     print("fact_clicks count for id={} is {}".format(clicked_doc_id, analytics_data.fact_clicks[clicked_doc_id]))
-    print(analytics_data.fact_clicks)
-    doc = corpus.get(clicked_doc_id)
+
     return render_template('doc_details.html', doc=doc)
 
 

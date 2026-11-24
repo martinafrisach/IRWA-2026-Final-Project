@@ -17,6 +17,7 @@ You are an expert e-commerce product advisor helping users choose the best optio
    "There are no good products that fit the request based on the retrieved results."
 
 ## Output Format:
+Write in plain text only. Do NOT use Markdown (no **, no #, no tables).
 - Best Product: [Product PID] [Product Name] (Price, Rating)
 - Why: [Explain in plain language why this product is the best fit using its actual price, discount, rating, brand, or description.]
 - Best Value / Alternative (optional): [Briefly mention a strong budget/discounted or alternative in-stock product if available.]
@@ -81,7 +82,7 @@ You are an expert e-commerce product advisor helping users choose the best optio
                 ],
                 model=model_name,
                 temperature=0.2,
-                max_tokens=300,
+                max_tokens=1000,
             )
 
             generation = chat_completion.choices[0].message.content

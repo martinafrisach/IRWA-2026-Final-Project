@@ -27,7 +27,7 @@
 
                 <div class="flex-grow-1">
                     <div class="doc-title">
-                        <a href="/doc_details?pid={{ item.pid }}" style="font-size: 1.1rem; font-weight: 600;">
+                        <a href="/doc_details?pid={{ item.pid }}&search_id={{ search_id }}&rank={{ loop.index }}" style="font-size: 1.1rem; font-weight: 600;">
                             {{ item.title }}
                         </a>
                         {% if item.brand %}
@@ -60,6 +60,7 @@
                                 No ratings
                             {% endif %}
                         </span>
+                        <span class="ms-3"><strong>Score:</strong> {{ item.ranking }}</span>
                     </div>
 
                     <div class="doc-desc text-secondary">
@@ -71,7 +72,7 @@
                     </div>
 
                     <div class="mt-1 small">
-                        <a href="/doc_details?pid={{ item.pid }}">View Product Details</a>
+                        <a href="/doc_details?pid={{ item.pid }}&search_id={{ search_id }}&rank={{ loop.index }}">View Product Details</a>
                         {% if item.url %}
                             | <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">Original Store Page &nearr;</a>
                         {% endif %}
