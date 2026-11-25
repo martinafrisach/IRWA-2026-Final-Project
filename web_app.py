@@ -2,7 +2,7 @@ import os
 from json import JSONEncoder
 
 import httpagentparser  # for getting the user agent as json
-from flask import Flask, render_template, session
+from flask import Flask, render_template, session, redirect, url_for
 from flask import request
 
 from myapp.analytics.analytics_data import AnalyticsData, ClickedDoc
@@ -12,6 +12,8 @@ from myapp.search.search_engine import SearchEngine
 from myapp.generation.rag import RAGGenerator
 from dotenv import load_dotenv
 from myapp.search.algorithms import build_search_index
+
+import uuid
 
 load_dotenv()  # take environment variables from .env
 
@@ -37,6 +39,30 @@ search_engine = SearchEngine()
 analytics_data = AnalyticsData()
 # instantiate RAG generator
 rag_generator = RAGGenerator()
+
+@app.before_request
+def before_request():
+    """ runs before every request: assigns a session id to new visitors (stored in the Flask session cookie),
+    saves their user context once, and logs the request."""
+
+    #do not tracj static files or browser's favicon request
+    if request.path.startswith('/static') or request.path in ('/favicon.ico', '/dwell'):
+        return
+
+    # keep the cookie for 31 days (not only until the browser closes), so the same
+    # visitor can be followed across several sit-downs
+    session.permanent = True
+
+    if "session_id" not in session:
+        session["session_id"] = str(uuid.uuid4())
+
+    session_id = session["session_id"]
+
+    #register the session if we don't have it yet
+    if not analytics_data.session_exists(session_id):
+        analytics_data.register_session(session_id, request.remote_addr, request.headers.get('User-Agent'))
+
+    analytics_data.register_request(session_id, request.path, request.method)
 
 # load documents corpus into memory.
 full_path = os.path.realpath(__file__)
@@ -71,16 +97,22 @@ def index():
     return render_template('index.html', page_title="Welcome")
 
 
-@app.route('/search', methods=['POST'])
+@app.route('/search', methods=['GET'])
 def search_form_post():
     
-    search_query = request.form['search-query']
+    search_query = request.args.get('search-query', '').strip()
+
+    # empty search -> back to the home page
+    if not search_query:
+        return redirect(url_for('index'))
 
     session['last_search_query'] = search_query
 
-    search_id = analytics_data.save_query_terms(search_query)
+    search_id = analytics_data.save_query_terms(search_query, session['session_id'])
 
     results = search_engine.search(search_query, search_id, corpus)
+
+    analytics_data.update_query_results(search_id, len(results))
 
     # generate RAG response based on user query and retrieved results
     rag_response = rag_generator.generate_response(search_query, results)
@@ -105,8 +137,8 @@ def doc_details():
     print("click in id={}".format(clicked_doc_id))
 
     # get the search and the position the click came from (?search_id=...&rank=...)
-    search_id = request.args.get("search_id")
-    rank = request.args.get("rank")
+    search_id = request.args.get("search_id", type=int)
+    rank = request.args.get("rank", type=int)
     print("click from search_id={} at rank={}".format(search_id, rank))
 
     # look for the product in the corpus BEFORE counting the click
@@ -116,21 +148,19 @@ def doc_details():
     if doc is None:
         return render_template('doc_details.html', doc=None)
 
-    # store data in statistics table 1 (only valid products)
-    if clicked_doc_id in analytics_data.fact_clicks:
-        analytics_data.fact_clicks[clicked_doc_id] += 1
-    else:
-        analytics_data.fact_clicks[clicked_doc_id] = 1
+    analytics_data.fact_clicks[clicked_doc_id] = analytics_data.fact_clicks.get(clicked_doc_id, 0) + 1
 
-    print("fact_clicks count for id={} is {}".format(clicked_doc_id, analytics_data.fact_clicks[clicked_doc_id]))
+    #register the click in the clicks table
+    click_id = analytics_data.register_click(session['session_id'], search_id, clicked_doc_id, rank)
+    print("click {} on doc={} from search_id={} at rank={}".format(click_id, clicked_doc_id, search_id, rank))
 
-    return render_template('doc_details.html', doc=doc)
+    return render_template('doc_details.html', doc=doc, click_id=click_id)
 
 
 @app.route('/stats', methods=['GET'])
 def stats():
     """
-    Show simple statistics example. ### Replace with yourdashboard ###
+    Show simple statistics example. ### Replace with your dashboard ###
     :return:
     """
 
@@ -148,24 +178,38 @@ def stats():
 
 @app.route('/dashboard', methods=['GET'])
 def dashboard():
-    visited_docs = []
-    for doc_id in analytics_data.fact_clicks.keys():
-        d: Document = corpus[doc_id]
-        doc = ClickedDoc(doc_id, d.description, analytics_data.fact_clicks[doc_id])
-        visited_docs.append(doc)
-
-    # simulate sort by ranking
-    visited_docs.sort(key=lambda doc: doc.counter, reverse=True)
-
-    for doc in visited_docs: print(doc)
-    return render_template('dashboard.html', visited_docs=visited_docs)
+    return render_template('dashboard.html', page_title="Dashboard",
+                           kpis=analytics_data.get_kpis(),
+                           charts=analytics_data.get_charts(corpus),
+                           zero_queries=analytics_data.get_zero_result_queries(),
+                           session_kpis=analytics_data.get_session_kpis(),
+                           missions=analytics_data.get_missions_table(),
+                           missions_chart=analytics_data.get_queries_per_mission_chart())
 
 
-# New route added for generating an examples of basic Altair plot (used for dashboard)
-@app.route('/plot_number_of_views', methods=['GET'])
-def plot_number_of_views():
-    return analytics_data.plot_number_of_views()
+
+@app.route('/dwell', methods=['POST'])
+def dwell():
+    """
+    Receives the dwell time from the document page (sent by JavaScript when the
+    user leaves the page) and stores it in the corresponding click.
+    """
+    click_id = request.args.get("click_id", type=int)
+    seconds = request.args.get("seconds", type=float)
+    if click_id is not None and seconds is not None:
+        analytics_data.update_dwell_time(click_id, round(seconds, 1))
+    return "", 204   # 204 = OK, no content to return
+
+#ELIMINA
+@app.route('/analytics_raw', methods=['GET'])
+def analytics_raw():
+    return {
+        "sessions": analytics_data.sessions,
+        "last_requests": analytics_data.requests[-20:],
+        "queries": analytics_data.queries,
+        "clicks": analytics_data.clicks,
+    }
 
 
 if __name__ == "__main__":
-    app.run(port=8088, host="0.0.0.0", threaded=False, debug=os.getenv("DEBUG"))
+    app.run(port=8088, host="0.0.0.0", threaded=True, debug=os.getenv("DEBUG"))

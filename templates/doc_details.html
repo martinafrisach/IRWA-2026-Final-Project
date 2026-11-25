@@ -104,4 +104,16 @@
     {% else %}
         <div class="alert alert-warning">Product not found in corpus.</div>
     {% endif %}
+    {% if click_id %}
+    <script>
+        // Dwell time: seconds between opening this product page and leaving it
+        // (going back to the results, closing the tab...). Sent to /dwell.
+        const clickId = {{ click_id }};
+        const openedAt = Date.now();
+        window.addEventListener("pagehide", function () {
+            const seconds = (Date.now() - openedAt) / 1000;
+            navigator.sendBeacon("/dwell?click_id=" + clickId + "&seconds=" + seconds);
+        });
+    </script>
+    {% endif %}
 {% endblock %}

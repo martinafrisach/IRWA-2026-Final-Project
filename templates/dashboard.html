@@ -2,30 +2,135 @@
 {% block page_title %}{{ page_title }}{% endblock %}
 
 {% block header %}
-    <!-- Next tag loads Charts.js https://www.chartjs.org/docs/latest/ -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.6.2/chart.min.js"
-            integrity="sha512-tMabqarPtykgDtdtSqCL3uLVM0gS1ZkUAVhRFu1vSEFgvB73niFQWJuvviDyBGBH22Lcau4rHB5p2K2T0Xvr6Q=="
-            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Vega / Vega-Lite / Vega-Embed: draw the Altair charts generated in Python -->
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
 {% endblock %}
 
 {% block content %}
+    <div class="mb-3">
+        <a href="/" class="btn btn-sm btn-outline-secondary">&larr; Home</a>
+    </div>
 
-    <!--
-    Examples of what to show in Dashboard:
+    <h3>Web Analytics Dashboard</h3>
+    <p class="text-muted">
+        Usage statistics of the search engine since the application was started
+        (data is stored in memory, so it resets when the app restarts).
+    </p>
 
-    - Ranking of visited documents (from results page)
-    - Visitor's preferred browsers
-    - Visitor's city (from IP)
-    - preferred queries ranking
-    - preferred terms
-    - etc.
+    <!-- Key indicators -->
+    <h5 class="mt-4">Key indicators</h5>
+    <div class="row">
+        {% for k in kpis %}
+            <div class="col-md-3 col-6 mb-3">
+                <div class="card h-100 p-3 text-center">
+                    <div class="text-muted small">{{ k.label }}</div>
+                    <div class="h3 mb-1">{{ k.value }}</div>
+                    <div class="small text-secondary">{{ k.help }}</div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
 
-    -->
+    <!-- Charts -->
+    <h5 class="mt-4">Reports</h5>
+    <div class="row">
+        {% for c in charts %}
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 p-3">
+                    <h6>{{ c.title }}</h6>
+                    <p class="small text-secondary">{{ c.explanation }}</p>
+                    {% if c.spec %}
+                        <div id="{{ c.id }}" style="width: 100%;"></div>
+                        <script>
+                            vegaEmbed("#{{ c.id }}", {{ c.spec | safe }}, {actions: false});
+                        </script>
+                    {% else %}
+                        <p class="text-muted"><em>No data yet.</em></p>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
 
-    <h3>Dashboard</h3>
-    <iframe src="/plot_number_of_views" width="600" height="400" style="border: none;"></iframe>
+    <!-- Sessions and missions (bonus) -->
+    <h5 class="mt-4">Physical sessions and missions</h5>
+    <p class="small text-secondary">
+        A <strong>physical session</strong> (sit-down) is a period of continuous use: a new one starts after
+        30 minutes without activity. Inside it, a <strong>mission</strong> groups consecutive queries with
+        the same goal: a query that shares at least one (stemmed) term with the current mission continues it
+        (e.g. "blue jeans" &rarr; "blue jeans slim"); otherwise a new mission starts.
+    </p>
+    {% if session_kpis %}
+        <div class="row">
+            {% for k in session_kpis %}
+                <div class="col-md-3 col-6 mb-3">
+                    <div class="card h-100 p-3 text-center">
+                        <div class="text-muted small">{{ k.label }}</div>
+                        <div class="h3 mb-1">{{ k.value }}</div>
+                        <div class="small text-secondary">{{ k.help }}</div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
 
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 p-3">
+                    <h6>Queries per mission</h6>
+                    <p class="small text-secondary">
+                        Missions with several queries mean the user had to reformulate the search to
+                        reach the goal; many 1-query missions mean the first query was usually enough.
+                    </p>
+                    <div id="missions_chart" style="width: 100%;"></div>
+                    <script>
+                        vegaEmbed("#missions_chart", {{ missions_chart | safe }}, {actions: false});
+                    </script>
+                </div>
+            </div>
+        </div>
 
+        <table class="table table-sm table-striped">
+            <thead>
+                <tr><th>Sit-down</th><th>Mission</th><th>Start</th><th>Queries (in order)</th><th>Clicks</th></tr>
+            </thead>
+            <tbody>
+                {% for m in missions %}
+                    <tr>
+                        <td>{{ m.physical_session }}</td>
+                        <td>{{ m.mission }}</td>
+                        <td>{{ m.start.strftime("%d/%m %H:%M") }}</td>
+                        <td>{{ m.queries }}</td>
+                        <td>{{ m.n_clicks }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="text-muted"><em>No data yet.</em></p>
+    {% endif %}
+
+    <!-- Queries without results -->
+    <h5 class="mt-2">Searches without results</h5>
+    <p class="small text-secondary">
+        Queries for which the engine returned nothing: they show vocabulary or products the
+        engine does not cover (or typos).
+    </p>
+    {% if zero_queries %}
+        <table class="table table-sm table-striped">
+            <thead><tr><th>Query</th><th>Terms</th><th>Date and time</th></tr></thead>
+            <tbody>
+                {% for q in zero_queries %}
+                    <tr>
+                        <td>{{ q.query }}</td>
+                        <td>{{ q.n_terms }}</td>
+                        <td>{{ q.timestamp.strftime("%d/%m/%Y %H:%M") }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="text-muted"><em>No searches without results.</em></p>
+    {% endif %}
 {% endblock %}
-
-
